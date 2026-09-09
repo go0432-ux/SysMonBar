@@ -15,31 +15,21 @@ struct SysMonBarApp: App {
         .menuBarExtraStyle(.window)
     }
 
-    /// 用單一 Text 串接圖示＋文字，而不是用多層 HStack(Image + Text)，避免刷新時寬度算錯被裁掉。
-    /// 使用者可在設定裡選擇選單列要顯示 CPU、記憶體，或兩者都顯示。
-    @ViewBuilder
+    // A single template image preserves symbols across the native status-item bridge.
     private var menuBarLabel: some View {
+        Image(nsImage: MenuBarLabelImage.make(metrics: menuBarMetrics))
+            .accessibilityLabel(menuBarMetrics.map { "\($0.name) \(Int($0.usage.rounded()))%" }.joined(separator: ", "))
+    }
+
+    private var menuBarMetrics: [MenuBarLabelImage.Metric] {
         switch monitor.menuBarDisplayMode {
         case .both:
-            (
-                Text(Image(systemName: "cpu"))
-                + Text(String(format: " %.0f%%   ", monitor.cpuUsage))
-                + Text(Image(systemName: "memorychip"))
-                + Text(String(format: " %.0f%%", monitor.memUsage))
-            )
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            return [.init(name: "CPU", symbol: "cpu", usage: monitor.cpuUsage),
+                    .init(name: "RAM", symbol: "memorychip", usage: monitor.memUsage)]
         case .cpuOnly:
-            (
-                Text(Image(systemName: "cpu"))
-                + Text(String(format: " %.0f%%", monitor.cpuUsage))
-            )
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            return [.init(name: "CPU", symbol: "cpu", usage: monitor.cpuUsage)]
         case .memOnly:
-            (
-                Text(Image(systemName: "memorychip"))
-                + Text(String(format: " %.0f%%", monitor.memUsage))
-            )
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            return [.init(name: "RAM", symbol: "memorychip", usage: monitor.memUsage)]
         }
     }
 }
