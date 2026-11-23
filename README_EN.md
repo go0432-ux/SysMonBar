@@ -4,7 +4,7 @@ A native, dependency-free macOS menu bar system monitor that displays real-time 
 
 ## Features
 
-- **Native SwiftUI `MenuBarExtra`**. A local observation measured about 110 MB RSS. Usage varies with environment and app state; see the measurement notes below.
+- **Native SwiftUI `MenuBarExtra`**. Memory use varies with panel state, framework caches, and time in use. See the measurement definitions and local observations below.
 - **No spawned child processes for core monitoring.** CPU and memory use the Mach APIs (`host_statistics` / `host_statistics64`) directly, while disk capacity uses `FileManager`, making it lighter than calling `top`, `vm_stat`, or `df`. The Top 5 memory-process list is the exception: it uses one lightweight `ps` call to read the process list.
 - **Customizable menu bar display:** show CPU and memory together, CPU only, or memory only.
 - **60-minute history charts** built with Swift Charts. CPU, memory, disk read speed, and disk write speed each have their own chart, like Activity Monitor. Toggle any metric individually from its colored label. Disk charts show live throughput (MB/s or KB/s), not disk-capacity usage.
@@ -110,6 +110,10 @@ Add `<language-code>.lproj/Localizable.strings` under `Resources/` by copying an
 - Number of Top 5 memory processes: change `head -n 5` in `updateTopMemoryProcesses()`.
 
 ## Tests
+
+When the panel is closed, core menu-bar metrics and 60-minute history continue without scanning processes. Opening the panel refreshes apps and background processes immediately. The visible list follows the refresh interval. Core monitoring starts on launch, before the first panel opening.
+
+After the same day's cleanup, five `proc_pid_rusage` samples two seconds apart, taken after restart without opening the panel, reported a 15.27–15.28 MiB physical footprint and 68.66–68.67 MiB resident memory. Five earlier samples of the already-used process reported a physical footprint of about 47.56 MiB. Different process ages and panel states prevent a controlled savings claim. RSS and physical footprint use different accounting. Opening charts or expanding lists can increase memory. The native-window test verifies that a retained hidden panel stops scans while history continues.
 
 On 2026-11-23, six `ps` RSS samples of running revision `6668c2f`, taken five seconds apart over 25 seconds on an Apple M4 Max with macOS 26.5.1, ranged from 109.6 to 109.7 MB. Here 1 MB = 1024 KiB. Window state was not controlled. This is one short observation, not Activity Monitor's Memory-column metric or a guarantee for other Macs or longer sessions. It replaces the earlier unsupported 10–20 MB claim for the current version.
 

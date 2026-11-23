@@ -56,8 +56,7 @@ final class SystemMonitor: ObservableObject {
     @Published var standaloneProcesses: [ProcessMemorySample] = []
     var topMemoryApps: [AppMemoryInfo] { Array(allMemoryApps.prefix(5)) }
 
-    /// 使用者可調整的刷新頻率（秒）；所有指標（CPU / 記憶體 / 硬碟 I/O / Top-5 記憶體程式）
-    /// 都是同一個 Timer 觸發、同一個 update() 裡依序更新，所以全部都會照這個頻率刷新。
+    /// CPU、記憶體、硬碟與歷史持續依此頻率更新；程式列表只在面板可見時跟著更新。
     @Published var interval: TimeInterval {
         didSet {
             guard interval != oldValue else { return }
@@ -78,6 +77,7 @@ final class SystemMonitor: ObservableObject {
     private var prevDiskIOBytes: (read: UInt64, written: UInt64)?
     private var prevDiskIOTime: Date?
     private var started = false
+    private var processListVisible = false
 
     init() {
         let savedInterval = UserDefaults.standard.double(forKey: Self.intervalDefaultsKey)
@@ -100,6 +100,17 @@ final class SystemMonitor: ObservableObject {
         started = false
     }
 
+    func setProcessListVisible(_ visible: Bool) {
+        guard processListVisible != visible else { return }
+        processListVisible = visible
+        guard visible else { return }
+        if started {
+            updateTopMemoryProcesses()
+        } else {
+            start()
+        }
+    }
+
     private func restartTimer() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
@@ -114,7 +125,9 @@ final class SystemMonitor: ObservableObject {
         updateMemory()
         updateDiskCapacity()
         updateDiskIO()
-        updateTopMemoryProcesses()
+        if processListVisible {
+            updateTopMemoryProcesses()
+        }
         recordSample()
     }
 

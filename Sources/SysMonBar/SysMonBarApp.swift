@@ -4,7 +4,13 @@ import Charts
 
 @main
 struct SysMonBarApp: App {
-    @StateObject private var monitor = SystemMonitor()
+    @StateObject private var monitor: SystemMonitor
+
+    init() {
+        let monitor = SystemMonitor()
+        monitor.start()
+        _monitor = StateObject(wrappedValue: monitor)
+    }
 
     var body: some Scene {
         MenuBarExtra {
@@ -111,9 +117,7 @@ struct MonitorView: View {
             .padding(16)
         }
         .frame(width: 340, height: min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80))
-        .onAppear {
-            monitor.start()
-        }
+        .background(ProcessPanelVisibility(onChange: monitor.setProcessListVisible))
         .alert(L("process.confirm_title"), isPresented: $showTerminationConfirmation, presenting: pendingTermination) { process in
             Button(L("process.terminate"), role: .destructive) {
                 if process.terminationTarget?.requestAppTermination(bundlePath: process.id) != true {
