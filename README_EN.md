@@ -51,6 +51,8 @@ Click the menu bar icon, scroll to the bottom, then select **Uninstall SysMonBar
 
 ## Settings
 
+CPU usage has a separate top-five list without Show all. App processes and nested helpers are combined, while standalone processes also participate in the ranking. CPU and memory rankings share one `ps` snapshot and stop scanning when the panel closes. CPU percentages use macOS `ps` recent decaying averages: 100% represents one core, so multi-core totals may exceed 100%. This differs from the system-wide CPU percentage above.
+
 The memory list shows the top five apps by default. Select Show all to reveal all apps and a separate list of background and standalone processes with names, PIDs, and RSS. Both lists are sorted by memory use. Helpers already grouped with an app are not listed twice. Select Show top 5 to collapse the list. Refreshes preserve the expanded state.
 
 The Top 5 Apps list combines processes within the same outer `.app` bundle, including nested helpers, ranks their summed RSS, and shows process counts. Other processes includes apps outside the top five, standalone processes, and services. RSS estimates can count shared memory more than once and must not be added to system categories to reconstruct total RAM used. Helpers outside the app bundle cannot be attributed by path and remain in Other processes.

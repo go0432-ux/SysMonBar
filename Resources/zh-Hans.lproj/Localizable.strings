@@ -38,3 +38,5 @@
 "memory.collapse" = "收起至前 5 名";
 "memory.expanded" = "已展开";
 "memory.collapsed" = "已收起";
+"cpu.top_title" = "CPU 用量前 5 名";
+"cpu.accounting" = "同一 App 的 Helper 合并计算。CPU 为 ps 的近期平均值；100% 代表一个核心，可超过 100%。";

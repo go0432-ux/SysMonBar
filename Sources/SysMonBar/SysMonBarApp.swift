@@ -100,6 +100,10 @@ struct MonitorView: View {
 
                 Divider()
 
+                topCPUSection
+
+                Divider()
+
                 topMemorySection
 
                 Divider()
@@ -163,6 +167,45 @@ struct MonitorView: View {
         }
         .font(.system(size: 10))
         .foregroundStyle(.secondary)
+    }
+
+    private var topCPUSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L("cpu.top_title"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if !monitor.processSnapshotAvailable {
+                Text(L("memory.unavailable"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(monitor.topCPUProcesses.enumerated()), id: \.element.id) { index, process in
+                    HStack(spacing: 6) {
+                        Text("\(index + 1)")
+                            .frame(width: 12, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(process.name)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text(String(format: L("memory.process_count"), process.pids.count))
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text(String(format: "%.1f%%", process.cpuPercent))
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.orange)
+                    }
+                    .font(.system(size: 11))
+                    .help(process.id)
+                }
+            }
+            Text(L("cpu.accounting"))
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     // MARK: 記憶體使用量最高的 5 個程式

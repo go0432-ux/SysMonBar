@@ -4,6 +4,7 @@ struct ProcessMemorySample: Identifiable {
     let pid: Int32
     let executable: String
     let residentBytes: Double
+    var cpuPercent: Double = 0
     var id: Int32 { pid }
     var name: String { (executable as NSString).lastPathComponent }
 
@@ -20,6 +21,14 @@ struct AppMemoryInfo: Identifiable {
     var pids: [Int32]
     var residentBytes: Double
     var terminationTarget: ProcessTerminationTarget?
+    var cpuPercent: Double = 0
+}
+
+struct CPUProcessInfo: Identifiable {
+    let id: String
+    var name: String
+    let pids: [Int32]
+    let cpuPercent: Double
 }
 
 struct AppMemorySnapshot {
@@ -27,13 +36,16 @@ struct AppMemorySnapshot {
     let allApps: [AppMemoryInfo]
     let standaloneProcesses: [ProcessMemorySample]
     let otherResidentBytes: Double
+    let topCPUProcesses: [CPUProcessInfo]
 
     static func parse(_ output: String) -> [ProcessMemorySample] {
         output.split(separator: "\n").compactMap { line in
-            let fields = line.split(maxSplits: 2, omittingEmptySubsequences: true, whereSeparator: { $0.isWhitespace })
-            guard fields.count == 3, let pid = Int32(fields[0]), pid > 0,
-                  let rss = Double(fields[1]), rss.isFinite, rss >= 0 else { return nil }
-            return ProcessMemorySample(pid: pid, executable: String(fields[2]), residentBytes: rss * 1024)
+            let fields = line.split(maxSplits: 3, omittingEmptySubsequences: true, whereSeparator: { $0.isWhitespace })
+            guard fields.count == 4, let pid = Int32(fields[0]), pid > 0,
+                  let cpu = Double(fields[1]), cpu.isFinite, cpu >= 0,
+                  let rss = Double(fields[2]), rss.isFinite, rss >= 0 else { return nil }
+            return ProcessMemorySample(pid: pid, executable: String(fields[3]), residentBytes: rss * 1024,
+                                       cpuPercent: cpu)
         }
     }
 
@@ -48,6 +60,7 @@ struct AppMemorySnapshot {
                 pids: [], residentBytes: 0)
             app.pids.append(process.pid)
             app.residentBytes += process.residentBytes
+            app.cpuPercent += process.cpuPercent
             groups[path] = app
         }
         let allApps = groups.values.sorted {
@@ -57,8 +70,17 @@ struct AppMemorySnapshot {
         let standalone = processes.filter { $0.appPath == nil }.sorted {
             $0.residentBytes == $1.residentBytes ? $0.pid < $1.pid : $0.residentBytes > $1.residentBytes
         }
+        let cpuGroups = allApps.map {
+            CPUProcessInfo(id: $0.id, name: $0.name, pids: $0.pids, cpuPercent: $0.cpuPercent)
+        } + standalone.map {
+            CPUProcessInfo(id: "pid:\($0.pid)", name: $0.name, pids: [$0.pid], cpuPercent: $0.cpuPercent)
+        }
+        let topCPU = Array(cpuGroups.sorted {
+            $0.cpuPercent == $1.cpuPercent ? $0.id < $1.id : $0.cpuPercent > $1.cpuPercent
+        }.prefix(5))
         return Self(apps: apps, allApps: allApps, standaloneProcesses: standalone,
-                    otherResidentBytes: max(0, total - apps.reduce(0) { $0 + $1.residentBytes }))
+                    otherResidentBytes: max(0, total - apps.reduce(0) { $0 + $1.residentBytes }),
+                    topCPUProcesses: topCPU)
     }
 }
 

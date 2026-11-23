@@ -54,6 +54,7 @@ final class SystemMonitor: ObservableObject {
     @Published var samples: [Sample] = []
     @Published var allMemoryApps: [AppMemoryInfo] = []
     @Published var standaloneProcesses: [ProcessMemorySample] = []
+    @Published var topCPUProcesses: [CPUProcessInfo] = []
     var topMemoryApps: [AppMemoryInfo] { Array(allMemoryApps.prefix(5)) }
 
     /// CPU、記憶體、硬碟與歷史持續依此頻率更新；程式列表只在面板可見時跟著更新。
@@ -282,7 +283,8 @@ final class SystemMonitor: ObservableObject {
     private func updateTopMemoryProcesses() {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/ps")
-        task.arguments = ["-A", "-o", "pid=", "-o", "rss=", "-o", "comm="]
+        task.arguments = ["-A", "-o", "pid=", "-o", "%cpu=", "-o", "rss=", "-o", "comm="]
+        task.environment = ProcessInfo.processInfo.environment.merging(["LC_ALL": "C"]) { _, value in value }
 
         let outPipe = Pipe()
         task.standardOutput = outPipe
@@ -294,6 +296,7 @@ final class SystemMonitor: ObservableObject {
             processSnapshotAvailable = false
             allMemoryApps = []
             standaloneProcesses = []
+            topCPUProcesses = []
             return
         }
         // Drain before waiting; the complete process list may exceed pipe capacity.
@@ -303,6 +306,7 @@ final class SystemMonitor: ObservableObject {
             processSnapshotAvailable = false
             allMemoryApps = []
             standaloneProcesses = []
+            topCPUProcesses = []
             return
         }
         let processes = AppMemorySnapshot.parse(output)
@@ -320,6 +324,13 @@ final class SystemMonitor: ObservableObject {
             return group
         }
         standaloneProcesses = snapshot.standaloneProcesses
+        topCPUProcesses = snapshot.topCPUProcesses.map { row in
+            var row = row
+            if let app = allMemoryApps.first(where: { $0.id == row.id }) {
+                row.name = app.name
+            }
+            return row
+        }
         otherProcessesGB = snapshot.otherResidentBytes / 1_073_741_824
         processSnapshotAvailable = !processes.isEmpty
     }

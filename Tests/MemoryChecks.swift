@@ -16,17 +16,20 @@ struct MemoryChecks {
         testParserRejectsInvalidRowsAndPreservesSpaces()
         testMemoryBreakdownUsesPhysicalCompressorPagesOnce()
         testExpandedListRetainsEveryAppAndStandaloneProcess()
+        testCPUCombinesHelpersAndRanksStandaloneProcesses()
+        testCPUAlwaysShowsAtMostFiveRegardlessOfMemoryLimit()
+        testCPUParserRejectsInvalidPercentages()
         try testQuitCannotTargetProtectedPIDsOrAnUnrelatedBundle()
-        print("PASS: 7 memory grouping, expansion, accounting, parsing and safe termination checks")
+        print("PASS: 10 CPU ranking, memory grouping, expansion, accounting, parsing and safe termination checks")
     }
 
     static func testNestedHelpersAreRankedWithTheirOuterApp() {
         // The same snapshot retains full results for expansion without resampling.
         let processes = AppMemorySnapshot.parse("""
-        10 1024 /Applications/Brave Browser.app/Contents/MacOS/Brave Browser
-        11 2048 /Applications/Brave Browser.app/Contents/Frameworks/Helper.app/Contents/MacOS/Helper
-        12 2500 /Applications/Other.app/Contents/MacOS/Other
-        13 512 /usr/libexec/service
+        10 0 1024 /Applications/Brave Browser.app/Contents/MacOS/Brave Browser
+        11 0 2048 /Applications/Brave Browser.app/Contents/Frameworks/Helper.app/Contents/MacOS/Helper
+        12 0 2500 /Applications/Other.app/Contents/MacOS/Other
+        13 0 512 /usr/libexec/service
         """)
         let snapshot = AppMemorySnapshot.make(processes: processes)
         XCTAssertEqual(snapshot.apps.map(\.name), ["Brave Browser", "Other"])
@@ -83,13 +86,52 @@ struct MemoryChecks {
     static func testParserRejectsInvalidRowsAndPreservesSpaces() {
         let samples = AppMemorySnapshot.parse("""
         invalid
-        10 -1 /bad.app/main
-        11 nan /bad.app/main
-        12 500 /Applications/Has Spaces.app/Contents/MacOS/Has Spaces
+        10 0 -1 /bad.app/main
+        11 0 nan /bad.app/main
+        12 0 500 /Applications/Has Spaces.app/Contents/MacOS/Has Spaces
         """)
         XCTAssertEqual(samples.count, 1)
         XCTAssertEqual(samples[0].appPath, "/Applications/Has Spaces.app")
         XCTAssertEqual(AppMemorySnapshot.make(processes: []).otherResidentBytes, 0)
+    }
+
+    static func testCPUCombinesHelpersAndRanksStandaloneProcesses() {
+        let processes = AppMemorySnapshot.parse("""
+        10 70.0 100 /Applications/Browser.app/Contents/MacOS/Browser
+        11 80.0 200 /Applications/Browser.app/Contents/Frameworks/Helper.app/Contents/MacOS/Helper
+        12 120.0 300 /usr/libexec/service
+        13 1.0 900000 /Applications/MemoryHeavy.app/Contents/MacOS/main
+        """)
+        let snapshot = AppMemorySnapshot.make(processes: processes)
+        XCTAssertEqual(snapshot.topCPUProcesses.map(\.name), ["Browser", "service", "MemoryHeavy"])
+        XCTAssertEqual(snapshot.topCPUProcesses[0].cpuPercent, 150)
+        XCTAssertEqual(snapshot.topCPUProcesses[0].pids, [10, 11])
+        XCTAssertEqual(snapshot.topCPUProcesses[1].pids, [12])
+        XCTAssertEqual(snapshot.apps.first?.name, "MemoryHeavy")
+    }
+
+    static func testCPUAlwaysShowsAtMostFiveRegardlessOfMemoryLimit() {
+        let processes = (1...9).map {
+            ProcessMemorySample(pid: Int32($0 + 100), executable: "/usr/bin/process\($0)",
+                                residentBytes: Double($0), cpuPercent: Double($0) * 10)
+        }
+        let snapshot = AppMemorySnapshot.make(processes: processes, limit: 1)
+        XCTAssertEqual(snapshot.topCPUProcesses.count, 5)
+        XCTAssertEqual(snapshot.topCPUProcesses.map(\.cpuPercent), [90, 80, 70, 60, 50])
+        XCTAssertEqual(AppMemorySnapshot.make(processes: []).topCPUProcesses.count, 0)
+    }
+
+    static func testCPUParserRejectsInvalidPercentages() {
+        let samples = AppMemorySnapshot.parse("""
+        10 nan 100 /usr/bin/invalid
+        11 -1 100 /usr/bin/invalid
+        12 inf 100 /usr/bin/invalid
+        13 250.5 200 /Applications/Has Spaces.app/Contents/MacOS/Has Spaces
+        """)
+        XCTAssertEqual(samples.count, 1)
+        XCTAssertEqual(samples[0].cpuPercent, 250.5)
+        XCTAssertEqual(samples[0].residentBytes, 200 * 1024)
+        XCTAssertEqual(samples[0].appPath, "/Applications/Has Spaces.app")
     }
 
     static func testMemoryBreakdownUsesPhysicalCompressorPagesOnce() {

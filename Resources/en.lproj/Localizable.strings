@@ -38,3 +38,5 @@
 "memory.collapse" = "Show top 5";
 "memory.expanded" = "Expanded";
 "memory.collapsed" = "Collapsed";
+"cpu.top_title" = "Top 5 CPU Usage";
+"cpu.accounting" = "App helpers are grouped. CPU is the ps recent average; 100% means one core and may exceed 100%.";
