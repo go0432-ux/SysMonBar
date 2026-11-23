@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Darwin
 import IOKit
 import IOKit.storage
@@ -11,15 +12,6 @@ struct Sample: Identifiable {
     let mem: Double
     let diskReadBps: Double
     let diskWrittenBps: Double
-}
-
-/// 單一程式的記憶體用量資訊（用於「記憶體使用量最高」列表）
-struct ProcessMemoryInfo: Identifiable {
-    let id = UUID()
-    let pid: Int32
-    let name: String
-    let rssMB: Double
-    let percent: Double
 }
 
 /// 選單列要顯示的主要指標
@@ -48,6 +40,10 @@ final class SystemMonitor: ObservableObject {
     @Published var memUsedGB: Double = 0
     @Published var memTotalGB: Double = 0
     @Published var wiredMemGB: Double = 0
+    @Published var appMemGB: Double = 0
+    @Published var compressedMemGB: Double = 0
+    @Published var otherProcessesGB: Double = 0
+    @Published var processSnapshotAvailable = false
 
     @Published var diskUsage: Double = 0
     @Published var diskUsedGB: Double = 0
@@ -56,7 +52,9 @@ final class SystemMonitor: ObservableObject {
     @Published var diskWrittenPerSec: Double = 0   // bytes/sec
 
     @Published var samples: [Sample] = []
-    @Published var topMemoryProcesses: [ProcessMemoryInfo] = []
+    @Published var allMemoryApps: [AppMemoryInfo] = []
+    @Published var standaloneProcesses: [ProcessMemorySample] = []
+    var topMemoryApps: [AppMemoryInfo] { Array(allMemoryApps.prefix(5)) }
 
     /// 使用者可調整的刷新頻率（秒）；所有指標（CPU / 記憶體 / 硬碟 I/O / Top-5 記憶體程式）
     /// 都是同一個 Timer 觸發、同一個 update() 裡依序更新，所以全部都會照這個頻率刷新。
@@ -181,14 +179,18 @@ final class SystemMonitor: ObservableObject {
         guard result == KERN_SUCCESS else { return }
 
         let pageSize = UInt64(vm_kernel_page_size)
-        let wired = UInt64(stats.wire_count) * pageSize
-        let used = (UInt64(stats.active_count) + UInt64(stats.wire_count) + UInt64(stats.compressor_page_count)) * pageSize
+        let breakdown = MemoryBreakdown(anonymousPages: UInt64(stats.internal_page_count),
+            purgeablePages: UInt64(stats.purgeable_count), wiredPages: UInt64(stats.wire_count),
+            compressorPages: UInt64(stats.compressor_page_count), pageSize: pageSize)
+        let used = breakdown.usedBytes
         let total = ProcessInfo.processInfo.physicalMemory
 
-        wiredMemGB = Double(wired) / 1_073_741_824
-        memUsedGB = Double(used) / 1_073_741_824
+        wiredMemGB = breakdown.systemBytes / 1_073_741_824
+        appMemGB = breakdown.appBytes / 1_073_741_824
+        compressedMemGB = breakdown.compressedBytes / 1_073_741_824
+        memUsedGB = used / 1_073_741_824
         memTotalGB = Double(total) / 1_073_741_824
-        memUsage = total > 0 ? Double(used) / Double(total) * 100 : 0
+        memUsage = total > 0 ? used / Double(total) * 100 : 0
     }
 
     // MARK: - Disk 容量（給頂部「硬碟」列使用）
@@ -266,9 +268,8 @@ final class SystemMonitor: ObservableObject {
 
     private func updateTopMemoryProcesses() {
         let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/bash")
-        // rss 欄位單位是 KB；用 sort -rn -k2 依記憶體用量由高到低排序，取前 5 筆
-        task.arguments = ["-c", "ps -Ao pid,rss,comm | tail -n +2 | sort -rn -k2 | head -n 5"]
+        task.executableURL = URL(fileURLWithPath: "/bin/ps")
+        task.arguments = ["-A", "-o", "pid=", "-o", "rss=", "-o", "comm="]
 
         let outPipe = Pipe()
         task.standardOutput = outPipe
@@ -277,32 +278,37 @@ final class SystemMonitor: ObservableObject {
         do {
             try task.run()
         } catch {
+            processSnapshotAvailable = false
+            allMemoryApps = []
+            standaloneProcesses = []
             return
         }
-        task.waitUntilExit()
-
+        // Drain before waiting; the complete process list may exceed pipe capacity.
         let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else { return }
-
-        let totalBytes = Double(ProcessInfo.processInfo.physicalMemory)
-        var results: [ProcessMemoryInfo] = []
-
-        for rawLine in output.split(separator: "\n") {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            let parts = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
-            guard parts.count >= 3,
-                  let pid = Int32(parts[0]),
-                  let rssKB = Double(parts[1]) else { continue }
-
-            let fullName = String(parts[2])
-            let shortName = (fullName as NSString).lastPathComponent
-            let rssMB = rssKB / 1024
-            let percent = totalBytes > 0 ? (rssKB * 1024) / totalBytes * 100 : 0
-
-            results.append(ProcessMemoryInfo(pid: pid, name: shortName, rssMB: rssMB, percent: percent))
+        task.waitUntilExit()
+        guard task.terminationStatus == 0, let output = String(data: data, encoding: .utf8) else {
+            processSnapshotAvailable = false
+            allMemoryApps = []
+            standaloneProcesses = []
+            return
         }
-
-        topMemoryProcesses = results
+        let processes = AppMemorySnapshot.parse(output)
+        let snapshot = AppMemorySnapshot.make(processes: processes)
+        let runningApps = NSWorkspace.shared.runningApplications
+        allMemoryApps = snapshot.allApps.map { group in
+            var group = group
+            if let app = runningApps.first(where: {
+                $0.bundleURL?.path == group.id && group.pids.contains($0.processIdentifier)
+                    && $0.activationPolicy == .regular
+            }) {
+                group.name = app.localizedName ?? group.name
+                group.terminationTarget = .capture(pid: app.processIdentifier)
+            }
+            return group
+        }
+        standaloneProcesses = snapshot.standaloneProcesses
+        otherProcessesGB = snapshot.otherResidentBytes / 1_073_741_824
+        processSnapshotAvailable = !processes.isEmpty
     }
 
     // MARK: - Uninstall

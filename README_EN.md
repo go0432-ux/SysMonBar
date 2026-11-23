@@ -51,6 +51,14 @@ Click the menu bar icon, scroll to the bottom, then select **Uninstall SysMonBar
 
 ## Settings
 
+The memory list shows the top five apps by default. Select Show all to reveal all apps and a separate list of background and standalone processes with names, PIDs, and RSS. Both lists are sorted by memory use. Helpers already grouped with an app are not listed twice. Select Show top 5 to collapse the list. Refreshes preserve the expanded state.
+
+The Top 5 Apps list combines processes within the same outer `.app` bundle, including nested helpers, ranks their summed RSS, and shows process counts. Other processes includes apps outside the top five, standalone processes, and services. RSS estimates can count shared memory more than once and must not be added to system categories to reconstruct total RAM used. Helpers outside the app bundle cannot be attributed by path and remain in Other processes.
+
+The system-wide RAM breakdown uses Mach counters. Total used is anonymous memory minus purgeable memory, plus wired memory and the physical size of compressed memory. File cache is excluded. This replaces the previous active-page calculation, so percentages may change. It is an estimate, not a guaranteed replica of Activity Monitor. The system breakdown uses GiB. App and background-process lists use 1024 MB = 1 GB, switching to GB at 1024 MB with up to one decimal place.
+
+Click the ⓧ button and confirm the app name and process count to request a normal quit from its main app. Unsaved work may be lost. Entries without an identifiable running main app, other users' apps, and SysMonBar cannot be quit here. The list updates at the next refresh. Apps may refuse to quit or restart automatically; the action does not force terminate the group's PIDs.
+
 The menu lets you configure:
 
 - **Refresh interval:** 1 / 2 / 5 / 10 / 30 / 60 seconds (10 seconds by default). All metrics—CPU, memory, disk I/O, and Top 5 memory processes—refresh together.
@@ -100,6 +108,10 @@ Add `<language-code>.lproj/Localizable.strings` under `Resources/` by copying an
 - History-chart window (currently 60 minutes): change `historyWindow` in `SystemMonitor.swift`.
 - Available refresh intervals: change `SystemMonitor.availableIntervals`.
 - Number of Top 5 memory processes: change `head -n 5` in `updateTopMemoryProcesses()`.
+
+## Tests
+
+Run `sh Tests/run.sh` to check memory categories, App grouping, and quit safeguards with macOS Command Line Tools. The checks create and terminate only their own temporary sleep process; they do not quit running apps.
 
 ## License
 

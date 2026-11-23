@@ -65,42 +65,70 @@ struct MonitorView: View {
     @ObservedObject var monitor: SystemMonitor
     @ObservedObject private var loc = LocalizationManager.shared
     @State private var visibleMetrics: Set<MetricType> = [.cpu, .mem, .diskRead, .diskWrite]
+    @State private var pendingTermination: AppMemoryInfo?
+    @State private var showTerminationConfirmation = false
+    @State private var showTerminationError = false
+    @State private var showAllMemoryApps = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            header
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                header
 
-            MetricRow(title: "CPU", icon: "cpu", percent: monitor.cpuUsage, detail: nil)
-            MetricRow(
-                title: L("metric.mem"), icon: "memorychip", percent: monitor.memUsage,
-                detail: String(format: "%.1f / %.1f GB   ", monitor.memUsedGB, monitor.memTotalGB)
-                    + String(format: L("mem.wired_format"), monitor.wiredMemGB)
-            )
-            MetricRow(
-                title: L("metric.disk"), icon: "internaldrive", percent: monitor.diskUsage,
-                detail: String(format: "%.0f / %.0f GB", monitor.diskUsedGB, monitor.diskTotalGB)
-            )
+                MetricRow(title: "CPU", icon: "cpu", percent: monitor.cpuUsage, detail: nil)
+                MetricRow(
+                    title: L("metric.mem"), icon: "memorychip", percent: monitor.memUsage,
+                    detail: String(format: "%.1f / %.1f GiB", monitor.memUsedGB, monitor.memTotalGB)
+                )
+                MetricRow(
+                    title: L("metric.disk"), icon: "internaldrive", percent: monitor.diskUsage,
+                    detail: String(format: "%.0f / %.0f GB", monitor.diskUsedGB, monitor.diskTotalGB)
+                )
 
-            Divider()
+                VStack(spacing: 4) {
+                    memoryAmountRow(L("memory.apps"), value: monitor.appMemGB)
+                    memoryAmountRow(L("memory.system"), value: monitor.wiredMemGB)
+                    memoryAmountRow(L("memory.compressed"), value: monitor.compressedMemGB)
+                }
+                .help(L("memory.breakdown_help"))
 
-            topMemorySection
+                Divider()
 
-            Divider()
+                topMemorySection
 
-            historyChart
+                Divider()
 
-            Divider()
+                historyChart
 
-            settingsSection
+                Divider()
 
-            Divider()
+                settingsSection
 
-            footerButtons
+                Divider()
+
+                footerButtons
+            }
+            .padding(16)
         }
-        .padding(16)
-        .frame(width: 300)
+        .frame(width: 340, height: min(720, (NSScreen.main?.visibleFrame.height ?? 800) - 80))
         .onAppear {
             monitor.start()
+        }
+        .alert(L("process.confirm_title"), isPresented: $showTerminationConfirmation, presenting: pendingTermination) { process in
+            Button(L("process.terminate"), role: .destructive) {
+                if process.terminationTarget?.requestAppTermination(bundlePath: process.id) != true {
+                    showTerminationError = true
+                }
+                pendingTermination = nil
+            }
+            Button(L("process.cancel"), role: .cancel) { pendingTermination = nil }
+        } message: { process in
+            Text(String(format: L("process.confirm_message"), process.name, process.pids.count))
+        }
+        .alert(L("process.error_title"), isPresented: $showTerminationError) {
+            Button(L("process.ok"), role: .cancel) { }
+        } message: {
+            Text(L("process.error_message"))
         }
     }
 
@@ -114,44 +142,132 @@ struct MonitorView: View {
         }
     }
 
+    private func formattedProcessMemory(_ bytes: Double) -> String {
+        if bytes >= 1_073_741_824 {
+            let value = (bytes / 1_073_741_824).formatted(.number.precision(.fractionLength(0...1)))
+            return "\(value) GB"
+        }
+        return String(format: "%.0f MB", bytes / 1_048_576)
+    }
+
+    private func memoryAmountRow(_ title: String, value: Double) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(String(format: "%.1f GiB", value))
+                .monospacedDigit()
+        }
+        .font(.system(size: 10))
+        .foregroundStyle(.secondary)
+    }
+
     // MARK: 記憶體使用量最高的 5 個程式
     // 跟其他指標共用同一個 Timer，會依照「刷新頻率」設定同步更新。
 
     private var topMemorySection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(L("topmem.title"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack {
+                Text(L(showAllMemoryApps ? "memory.all_title" : "topmem.title"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if monitor.processSnapshotAvailable && (monitor.allMemoryApps.count > 5 || !monitor.standaloneProcesses.isEmpty) {
+                    memoryExpandButton
+                }
+            }
 
-            VStack(spacing: 4) {
-                if monitor.topMemoryProcesses.isEmpty {
-                    Text("…")
+            LazyVStack(spacing: 4) {
+                if !monitor.processSnapshotAvailable {
+                    Text(L("memory.unavailable"))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 } else {
-                    ForEach(Array(monitor.topMemoryProcesses.enumerated()), id: \.element.id) { index, proc in
+                    ForEach(Array((showAllMemoryApps ? monitor.allMemoryApps : monitor.topMemoryApps).enumerated()), id: \.element.id) { index, proc in
                         HStack(spacing: 6) {
                             Text("\(index + 1)")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.secondary)
                                 .frame(width: 12, alignment: .trailing)
-                            Text(proc.name)
-                                .font(.system(size: 11))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(proc.name)
+                                    .font(.system(size: 11))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Text(String(format: L("memory.process_count"), proc.pids.count))
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .help(proc.id)
                             Spacer()
-                            Text(String(format: "%.0f MB", proc.rssMB))
+                            Text(formattedProcessMemory(proc.residentBytes))
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.secondary)
-                            Text(String(format: "%.1f%%", proc.percent))
+                            Text(String(format: "%.1f%%", proc.residentBytes / Double(ProcessInfo.processInfo.physicalMemory) * 100))
                                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(.blue)
                                 .frame(width: 38, alignment: .trailing)
+                            Button {
+                                pendingTermination = proc
+                                showTerminationConfirmation = true
+                            } label: {
+                                Image(systemName: "xmark.circle")
+                                    .font(.system(size: 12))
+                                    .frame(width: 20, height: 20)
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(proc.terminationTarget == nil)
+                            .help(L(proc.terminationTarget == nil ? "process.unavailable" : "process.terminate"))
+                            .accessibilityLabel("\(L("process.terminate")) \(proc.name)")
                         }
                     }
                 }
             }
+            if showAllMemoryApps && monitor.processSnapshotAvailable {
+                Divider()
+                Text(String(format: L("memory.background_title"), monitor.standaloneProcesses.count))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                LazyVStack(spacing: 5) {
+                    ForEach(monitor.standaloneProcesses) { process in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(process.name)
+                                    .font(.system(size: 11))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Text("PID \(process.pid)")
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .help(process.executable)
+                            Spacer()
+                            Text(formattedProcessMemory(process.residentBytes))
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                memoryExpandButton
+            } else if monitor.processSnapshotAvailable {
+                memoryAmountRow(L("memory.other"), value: monitor.otherProcessesGB)
+            }
+            Text(L("memory.rss_note"))
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private var memoryExpandButton: some View {
+        Button {
+            showAllMemoryApps.toggle()
+        } label: {
+            Label(L(showAllMemoryApps ? "memory.collapse" : "memory.expand"),
+                  systemImage: showAllMemoryApps ? "chevron.up" : "chevron.down")
+        }
+        .font(.system(size: 10))
+        .buttonStyle(.borderless)
+        .accessibilityValue(L(showAllMemoryApps ? "memory.expanded" : "memory.collapsed"))
     }
 
     // MARK: 60 分鐘歷史走勢圖

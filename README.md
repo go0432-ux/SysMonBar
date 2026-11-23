@@ -49,6 +49,14 @@ chmod +x build.sh install.sh make-dmg.sh uninstall.sh
 
 ## 設定選項
 
+記憶體列表預設顯示前五名 App。點「展開全部」會顯示所有 App，並在下方列出未歸屬 App 的背景及獨立行程，含名稱、PID 與 RSS 用量。App 與背景行程各依用量排序；同一 App 內的 Helper 不會重複列出。點「收合至前 5 名」可還原，刷新時維持目前展開狀態。
+
+前五名列表按 App 合併同一個外層 `.app` 內的主程式與 Helper，再依 RSS 合計排名，並顯示行程數。未進入前五名的 App、獨立行程與服務都計入「其他行程」。這些 RSS 估算可能重複包含共享記憶體，不能相加當成總 RAM 用量。外層 App 目錄以外的 Helper 無法僅靠路徑歸屬，會列入其他行程。
+
+上方 RAM 分類以 Mach API 讀取，總量為「程式記憶體（匿名頁扣除可清除部分）＋系統有線記憶體＋壓縮資料的實體佔用」，不含檔案快取。此估算取代舊版使用 active 頁的算法，數值可能改變；並非活動監視器數字的保證副本。上方分類使用 GiB；App 與背景行程列表採 1024 MB＝1 GB 換算，達到 1024 MB 自動顯示 GB，最多一位小數。
+
+點擊 App 右側的 ⓧ 按鈕，再確認 App 名稱及行程數，即可向主 App 要求正常退出。未儲存的內容可能遺失。沒有可識別主 App 的項目、其他使用者的 App 與 SysMonBar 無法在此結束。列表於下次刷新更新；App 可能拒絕退出或自動重啟，本工具不強制結束整組 PID。
+
 在選單裡可以調整：
 
 - **刷新頻率**：1 / 2 / 5 / 10 / 30 / 60 秒（預設 10 秒）——所有數據（CPU、記憶體、硬碟讀寫、Top-5 記憶體程式）都跟著這個頻率一起更新
@@ -97,6 +105,10 @@ GitHub Actions 會自動建置 `SysMonBar.dmg` 並附加到對應的 Release。
 - 歷史走勢圖時間窗（目前 60 分鐘）：改 `SystemMonitor.swift` 裡的 `historyWindow`。
 - 可選的刷新頻率選項：改 `SystemMonitor.availableIntervals`。
 - Top-5 記憶體程式清單筆數（目前 5 筆）：改 `updateTopMemoryProcesses()` 裡的 `head -n 5`。
+
+## 測試
+
+記憶體分類、App 合併與結束保護的測試可用 `sh Tests/run.sh` 執行，僅需 macOS Command Line Tools。測試僅建立及結束自己的暫存 sleep 行程，不會退出使用中的 App。
 
 ## License
 
