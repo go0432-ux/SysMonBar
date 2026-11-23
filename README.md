@@ -4,7 +4,7 @@
 
 ## 特色
 
-- **原生 SwiftUI `MenuBarExtra`**，不是 Electron，常駐記憶體通常只有 10–20MB。
+- **原生 SwiftUI `MenuBarExtra`**。本機實測約 110 MB RSS；用量會隨環境與使用狀態改變，詳見下方測量說明。
 - **不 spawn 子行程**做核心監控：CPU / 記憶體用 Mach API (`host_statistics` / `host_statistics64`) 直接讀，硬碟用 `FileManager`，比呼叫 `top` / `vm_stat` / `df` 更省資源。（Top-5 記憶體程式清單例外，這項本來就需要讀行程列表，用一次輕量的 `ps` 呼叫取得。）
 - **選單列顯示可自訂**：CPU + 記憶體同時顯示，或只顯示其中一項——在設定裡選（見下方）。
 - **60 分鐘歷史走勢圖**（Swift Charts）：CPU / 記憶體 / 硬碟讀取速度 / 硬碟寫入速度，各自獨立一條走勢圖（像 Activity Monitor 那樣分開排列），彼此不會重疊；點色塊標籤可單獨隱藏／顯示某一項，預設四項都顯示。硬碟走勢圖顯示的是即時讀寫速度（MB/s、KB/s），不是容量使用率。
@@ -107,6 +107,8 @@ GitHub Actions 會自動建置 `SysMonBar.dmg` 並附加到對應的 Release。
 - Top-5 記憶體程式清單筆數（目前 5 筆）：改 `updateTopMemoryProcesses()` 裡的 `head -n 5`。
 
 ## 測試
+
+2026-11-23 在 Apple M4 Max、macOS 26.5.1，以 `ps` 對正在執行的版本 `6668c2f` 每 5 秒讀取一次 RSS，共 6 次、歷時 25 秒，結果為 109.6–109.7 MB（此處 1 MB＝1024 KiB）。這是單機短時觀測，未控制視窗開關狀態；並非活動監視器的「記憶體」欄位計算方式，也不代表所有 Mac 或長時間使用的固定值。已移除先前未有當前版本量測支持的「10–20 MB」說法。
 
 記憶體分類、App 合併與結束保護的測試可用 `sh Tests/run.sh` 執行，僅需 macOS Command Line Tools。測試僅建立及結束自己的暫存 sleep 行程，不會退出使用中的 App。
 
